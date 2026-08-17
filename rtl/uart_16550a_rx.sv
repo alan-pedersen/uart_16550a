@@ -26,7 +26,9 @@ module uart_16550a_rx (
 
     state_t state;
 
-    // === RX Datapath === //
+    // ================================================================
+    // RX Synchronization
+    // ================================================================
 
     logic       rx_meta;
     logic       rx_sync;
@@ -55,13 +57,41 @@ module uart_16550a_rx (
     assign rx_vote = (rx_history[1] & rx_history[0]) |
                      (rx_history[1] & rx_sync)       |
                      (rx_history[0] & rx_sync);
-    
-    // === Baud Generator === //
+
+    // ================================================================
+    // Control Signals
+    // ================================================================
+
+    // These signals are derived purely for readability.
+    // The logic could be written inline without changing functionality
+
+    logic rx_ready; // Indicates that the FSM is in ST_IDLE and ready to start receiving
+    logic rx_start; // Indicates a falling edge on RX; not necessarily a valid start bit
+
+    assign rx_ready = (state == ST_IDLE);
+    assign rx_start = (rx_sync == 0) && (rx_prev == 1);
+
+    // ================================================================
+    // Baud Generation
+    // ================================================================
 
     logic [15:0] baud_div_q;
     logic [15:0] baud_counter;
     logic        baud_tick_16x;
 
+    // Shadow the baud divisor so DLL/DLM writes cannot
+    // corrupt a reception already in progress
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            baud_div_q <= 0;
+        end
+        else if (rx_ready && rx_start) begin
+            baud_div_q <= baud_div;
+        end
+    end
+
+    // Keep the baud counter inactive while the FSM is idle
+    // or when the baud divisor is zero
     always_ff @(posedge clk) begin
         if (rst || (state == ST_IDLE) || (baud_div_q == 0)) begin
             baud_counter  <= 0;
@@ -77,7 +107,16 @@ module uart_16550a_rx (
         end
     end
 
-    // === Main RX Engine === //
+    // ================================================================
+    // RX Control
+    // ================================================================
+
+    // Shadow the LCR fields to prevent
+    // changes mid-reception
+    logic [1:0] lcr_word_len_q;
+    logic       lcr_parity_en_q;
+    logic       lcr_parity_even_q;
+    logic       lcr_parity_stick_q;
 
     logic [7:0] rsr;
     logic [3:0] max_bits; // Word length minus 1; extra bit allows comparison with bit_cnt
@@ -96,27 +135,30 @@ module uart_16550a_rx (
     logic       midpoint_bi;
 
     assign is_zero_data    = (rsr == 8'd0);
-    assign is_zero_parity  = (!lcr_parity_en || (parity_received == 1'b0));
+    assign is_zero_parity  = (!lcr_parity_en_q || (parity_received == 1'b0));
     assign break_condition = is_zero_data && is_zero_parity;
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            baud_div_q      <= 0;
-            rsr             <= 0;
-            max_bits        <= 0;
-            bit_cnt         <= 0;
-            counter         <= 0;
-            parity_expected <= 0;
-            parity_received <= 0;
-            midpoint_pe     <= 0;
-            midpoint_fe     <= 0;
-            midpoint_bi     <= 0;
-            rx_data         <= 0;
-            rx_valid        <= 0;
-            rx_pe           <= 0;
-            rx_fe           <= 0;
-            rx_bi           <= 0;
-            state           <= ST_IDLE;
+            lcr_word_len_q     <= 0;
+            lcr_parity_en_q    <= 0;
+            lcr_parity_even_q  <= 0;
+            lcr_parity_stick_q <= 0;
+            rsr                <= 0;
+            max_bits           <= 0;
+            bit_cnt            <= 0;
+            counter            <= 0;
+            parity_expected    <= 0;
+            parity_received    <= 0;
+            midpoint_pe        <= 0;
+            midpoint_fe        <= 0;
+            midpoint_bi        <= 0;
+            rx_data            <= 0;
+            rx_valid           <= 0;
+            rx_pe              <= 0;
+            rx_fe              <= 0;
+            rx_bi              <= 0;
+            state              <= ST_IDLE;
         end
         else begin
             rx_valid <= 0;
@@ -126,16 +168,19 @@ module uart_16550a_rx (
 
             unique case (state)
                 ST_IDLE: begin
-                    if ((rx_sync == 0) && (rx_prev == 1)) begin
-                        baud_div_q  <= baud_div;
-                        rsr         <= 0;
-                        max_bits    <= 4 + {2'b00, lcr_word_len}; // inconsistent with N-1 coding style ?? IGNORE
-                        bit_cnt     <= 0;
-                        counter     <= 0;
-                        midpoint_pe <= 0;
-                        midpoint_fe <= 0;
-                        midpoint_bi <= 0;
-                        state       <= ST_START;
+                    if (rx_start) begin
+                        lcr_word_len_q     <= lcr_word_len;
+                        lcr_parity_en_q    <= lcr_parity_en;
+                        lcr_parity_even_q  <= lcr_parity_even;
+                        lcr_parity_stick_q <= lcr_parity_stick;
+                        rsr                <= 0;
+                        max_bits           <= 4 + {2'b00, lcr_word_len};
+                        bit_cnt            <= 0;
+                        counter            <= 0;
+                        midpoint_pe        <= 0;
+                        midpoint_fe        <= 0;
+                        midpoint_bi        <= 0;
+                        state              <= ST_START;
                     end
                 end
                 ST_START: begin
@@ -160,8 +205,8 @@ module uart_16550a_rx (
 
                             // Use '>' because bit_cnt is incremented before reaching this check
                             if (bit_cnt > max_bits) begin
-                                parity_expected <= calc_parity(rsr, lcr_word_len, lcr_parity_even, lcr_parity_stick);
-                                state           <= lcr_parity_en ? ST_PARITY : ST_STOP;
+                                parity_expected <= calc_parity(rsr, lcr_word_len_q, lcr_parity_even_q, lcr_parity_stick_q);
+                                state           <= lcr_parity_en_q ? ST_PARITY : ST_STOP;
                             end
                         end
                         else begin

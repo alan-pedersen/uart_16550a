@@ -67,7 +67,7 @@ module uart_16550a_tx (
     // TX Control
     // ================================================================
 
-    logic        lcr_parity_en_q; // Shadowed parity enable to prevent changes mid-transaction
+    logic        lcr_parity_en_q; // Shadowed parity enable to prevent changes mid-transmission
     logic        parity;          // The computed parity bit
 
     logic [7:0]  tsr;             // Transmit Shift Register
