@@ -49,7 +49,7 @@ module uart_16550a_tx (
     // Keep the baud counter inactive while the FSM is idle
     // or when the baud divisor is zero
     always_ff @(posedge clk) begin
-        if (rst || tx_ready || (baud_div_q == 0)) begin
+        if (rst || (state == ST_IDLE) || (baud_div_q == 0)) begin
             baud_counter  <= 0;
             baud_tick_16x <= 0;
         end
@@ -67,13 +67,14 @@ module uart_16550a_tx (
     // TX Control
     // ================================================================
 
+    logic        lcr_parity_en_q; // Shadowed parity enable to prevent changes mid-transaction
+    logic        parity;          // The computed parity bit
+
     logic [7:0]  tsr;             // Transmit Shift Register
     logic [2:0]  max_bits;        // Number of bits per character minus 1
     logic [2:0]  bit_cnt;         // Counter to track the character bits transmitted
     logic [4:0]  stop_ticks;      // Number of baud ticks for the ST_STOP phase
     logic [4:0]  counter;         // Counter to track TX sampling ticks and ST_STOP phase ticks
-    logic        parity;          // The computed parity bit
-    logic        lcr_parity_en_q; // Shadowed parity enable to prevent changes mid-transaction
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -91,7 +92,7 @@ module uart_16550a_tx (
         else begin
             unique case (state)
                 ST_IDLE: begin
-                    if (tx_ready && tx_start) begin
+                    if (tx_start) begin // tx_ready will always be set when state == ST_IDLE
                         tsr             <= tx_data;
                         max_bits        <= 4 + {1'b0, lcr_word_len};
                         bit_cnt         <= 0;
