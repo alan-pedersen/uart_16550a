@@ -10,7 +10,21 @@ module uart_16550a (
 
     input  logic       rx,
     output logic       tx,
-    output logic       irq
+    output logic       irq // add ready / valid signals ??
+
+/* replace above to keep bus-agnostic ?? What about MMIO for QSPI ??
+    input  logic        req_valid,
+    output logic        req_ready,
+
+    input  logic        req_write,
+    input  logic [3:0]  req_be,
+    input  logic [31:0] req_addr,
+    input  logic [31:0] req_wdata,
+
+    output logic [31:0] rsp_rdata,
+    output logic        rsp_valid,
+    output logic        rsp_err,
+*/
 );
     import uart_16550a_pkg::*;
 
@@ -35,6 +49,7 @@ module uart_16550a (
     logic [7:0]  iir;
     logic [7:0]  scr;
 
+    logic        dlab;
     logic [15:0] baud_div;
 
     logic        fcr_write;
@@ -42,6 +57,7 @@ module uart_16550a (
     logic        iir_read;
     logic        fifo_en_toggle;
 
+    assign dlab           = lcr[7];
     assign baud_div       = {dlm, dll};
     assign fcr_write      = csr_we && (csr_addr == CSR_FCR);
     assign lsr_read       = csr_re && (csr_addr == CSR_LSR);
@@ -87,10 +103,10 @@ module uart_16550a (
 
     assign rx_fifo_rst              = rst || fifo_en_toggle || (fcr_write && csr_wdata[1]);
     assign rx_fifo_push             = rx_valid;
-    assign rx_fifo_pop              = csr_re && !lcr[7] && (csr_addr == CSR_RBR);
+    assign rx_fifo_pop              = csr_re && !dlab && (csr_addr == CSR_RBR);
     assign rx_fifo_wdata            = {rx_bi, rx_fe, rx_pe, rx_data};
-    assign rx_fifo_successful_pop   = rx_fifo_pop && !rx_fifo_empty;
     assign rx_fifo_successful_push  = rx_fifo_push && !rx_fifo_effective_full;
+    assign rx_fifo_successful_pop   = rx_fifo_pop && !rx_fifo_empty;
     assign rx_fifo_effective_full   = fcr[0] ? rx_fifo_full : !rx_fifo_empty;
     assign rx_fifo_overrun_event    = rx_fifo_push && rx_fifo_effective_full;
     assign rx_fifo_head_update      = (rx_fifo_pop && !rx_fifo_empty) || (rx_fifo_push && rx_fifo_empty); // Push on empty or pop on not empty
@@ -139,7 +155,7 @@ module uart_16550a (
         .lcr_parity_stick (lcr[5])
     );
 
-    sync_fifo #(
+    uart_16550a_sync_fifo #(
         .WIDTH (11),
         .DEPTH (16)
     ) rx_fifo (
@@ -175,14 +191,14 @@ module uart_16550a (
     // one push to the FIFO takes place.
 
     assign tx_fifo_rst   = rst || fifo_en_toggle || (fcr_write && csr_wdata[2]);
-    assign tx_fifo_push  = csr_we && !lcr[7] && (csr_addr == CSR_THR) && (fcr[0] || tx_fifo_empty);
+    assign tx_fifo_push  = csr_we && !dlab && (csr_addr == CSR_THR) && (fcr[0] || tx_fifo_empty);
     assign tx_fifo_pop   = tx_start;
     assign tx_fifo_wdata = csr_wdata;
 
     assign tx_start      = tx_ready && !tx_fifo_empty;
     assign tx_data       = tx_fifo_rdata;
 
-    sync_fifo #(
+    uart_16550a_sync_fifo #(
         .WIDTH (8),
         .DEPTH (16)
     ) tx_fifo (
@@ -231,20 +247,20 @@ module uart_16550a (
         else if (csr_we) begin
             unique0 case (csr_addr)
                 CSR_LCR: lcr <= csr_wdata;
-                CSR_MCR: mcr <= csr_wdata & 8'h3F;
+                CSR_MCR: mcr <= csr_wdata & MCR_WR_MASK;
                 CSR_SCR: scr <= csr_wdata;
 
                 CSR_THR: begin
-                    if (lcr[7]) dll <= csr_wdata;
+                    if (dlab) dll <= csr_wdata;
                     // THR writes are handled in tx_fifo_push
                 end
                 CSR_FCR: begin
-                    if (csr_wdata[0]) fcr <= csr_wdata & 8'hC9; // RX/TX FIFO reset pins not registered; checked combinationally
+                    if (csr_wdata[0]) fcr <= csr_wdata & FCR_WR_MASK; // RX/TX FIFO reset pins not registered; checked combinationally
                     else              fcr <= csr_wdata & 8'h01;
                 end
                 CSR_IER: begin
-                    if (lcr[7]) dlm <= csr_wdata;
-                    else        ier <= csr_wdata & 8'h0F;
+                    if (dlab) dlm <= csr_wdata;
+                    else      ier <= csr_wdata & IER_WR_MASK;
                 end
             endcase
         end
@@ -258,12 +274,12 @@ module uart_16550a (
                 CSR_SCR: csr_rdata <= scr;
 
                 CSR_RBR: begin
-                    if (lcr[7]) csr_rdata <= dll;
-                    else        csr_rdata <= rx_fifo_rdata[7:0];
+                    if (dlab) csr_rdata <= dll;
+                    else      csr_rdata <= rx_fifo_rdata[7:0];
                 end
                 CSR_IER: begin
-                    if (lcr[7]) csr_rdata <= dlm;
-                    else        csr_rdata <= ier;
+                    if (dlab) csr_rdata <= dlm;
+                    else      csr_rdata <= ier;
                 end
             endcase
         end
@@ -299,114 +315,33 @@ module uart_16550a (
 
     // === IIR === //
 
-    logic rls;
-    logic rda;
-    logic cti;
-    logic thre;
-    logic ms;
-
-    // IIR: THRE INTERRUPT //
-
-    logic thre_active;
-    logic thre_ack;
-
-    assign thre_active = (iir[3:0] == 4'b0010);
-
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            thre_ack <= 0;
-        end
-        else begin
-            if (tx_fifo_push && !tx_fifo_full) thre_ack <= 0;
-            else if (iir_read && thre_active)  thre_ack <= 1;
-        end
-    end
-
-    // IIR: CTI INTERRUPT //
-
-    logic [9:0]  start_ticks; // Max ticks = (1 start, 8 data, 1 parity, 2 stop) * 16 * 4 = 10 bits
-    logic [9:0]  data_ticks;
-    logic [9:0]  parity_ticks;
-    logic [9:0]  stop_ticks;
-    logic [9:0]  timeout_ticks;
-
-    logic [9:0]  timeout_counter;
-    logic        timeout;
-
-    logic [15:0] cti_baud_div_q; // To handle DLM/DLL writes
-    logic [15:0] cti_baud_counter;
-    logic        cti_baud_rst;
-    logic        cti_tick_16x;
-
-    assign start_ticks   = 16;
-    assign data_ticks    = (10'd5 + 10'(lcr[1:0])) * 16;
-    assign parity_ticks  = lcr[3] ? 16 : 0;
-    assign stop_ticks    = {5'b0, calc_stop_ticks(lcr[1:0], lcr[2])} * 16;
-    assign timeout_ticks = (start_ticks + data_ticks + parity_ticks + stop_ticks) * 4;
-
-    assign cti_baud_rst  = rx_fifo_successful_pop || (!timeout && rx_fifo_successful_push); // Matches reset for timeout_counter
-
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            cti_baud_div_q   <= 0;
-            cti_baud_counter <= 0;
-            cti_tick_16x     <= 0;
-        end
-        else if (cti_baud_rst || (cti_baud_div_q == 0)) begin
-            cti_baud_div_q   <= baud_div;
-            cti_baud_counter <= 0;
-            cti_tick_16x     <= 0;
-        end
-        else if (cti_baud_counter == (cti_baud_div_q - 1)) begin
-            cti_baud_counter <= 0;
-            cti_tick_16x     <= 1;
-        end
-        else begin
-            cti_baud_counter <= cti_baud_counter + 1;
-            cti_tick_16x     <= 0;
-        end
-    end
-
-    always_ff @(posedge clk) begin
-        if (rst || rx_fifo_successful_pop) begin
-            timeout_counter <= 0;
-            timeout         <= 0;
-        end
-        else if (!timeout) begin // If a timeout is set, nothing should change
-            if (rx_fifo_successful_push) begin
-                timeout_counter <= 0;
-            end
-            else if (cti_tick_16x && !rx_fifo_empty) begin
-                timeout_counter <= timeout_counter + 1;
-
-                if (timeout_counter == (timeout_ticks - 1)) begin
-                    timeout <= 1;
-                end
-            end
-        end
-    end
-
-    // IIR: Main Assignment //
-
-    assign rls  = ier[2] && |lsr[4:1];
-    assign rda  = ier[0] && (fcr[0] ? rx_fifo_trigger_met : !rx_fifo_empty);
-    assign cti  = ier[0] && timeout;
-    assign thre = ier[1] && tx_fifo_empty && !thre_ack;
-    assign ms   = ier[3]; // ??
-
-    always_comb begin
-        if (rls)       iir[3:0] = 4'b0110;
-        else if (rda)  iir[3:0] = 4'b0100;
-        else if (cti)  iir[3:0] = 4'b1100;
-        else if (thre) iir[3:0] = 4'b0010;
-        else if (ms)   iir[3:0] = 4'b0000;
-        else           iir[3:0] = 4'b0001;
-    end
-
     assign iir[7:4] = {fcr[0], fcr[0], 2'b00};
 
-    always_ff @(posedge clk) begin
-        if (rst) irq <= 0;
-        else     irq <= ~iir[0];
-    end
+    uart_16550a_intc uart_intc (
+        .clk                     (clk),
+        .rst                     (rst),
+        .erbi                    (ier[0]),
+        .etbei                   (ier[1]),
+        .elsi                    (ier[2]),
+        .edssi                   (ier[3]),
+        .fcr_fifo_en             (fcr[0]),
+        .lcr_word_len            (lcr[1:0]),
+        .lcr_parity_en           (lcr[3]),
+        .lcr_stop_bits           (lcr[2]),
+        .baud_div                (baud_div),
+        .rx_oe                   (overrun_err),
+        .rx_pe                   (lsr[2]),
+        .rx_fe                   (lsr[3]),
+        .rx_bi                   (lsr[4]),
+        .iir_read                (iir_read),
+        .rx_fifo_trigger_met     (rx_fifo_trigger_met),
+        .rx_fifo_empty           (rx_fifo_empty),
+        .rx_fifo_successful_push (rx_fifo_successful_push),
+        .rx_fifo_successful_pop  (rx_fifo_successful_pop),
+        .tx_fifo_push            (tx_fifo_push),
+        .tx_fifo_full            (tx_fifo_full),
+        .tx_fifo_empty           (tx_fifo_empty),
+        .irq_id                  (iir[3:0]),
+        .irq                     (irq)
+    );
 endmodule
