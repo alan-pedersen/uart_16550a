@@ -9,8 +9,8 @@ module uart_16550a_intc (
 
     input  logic        fcr_fifo_en,
     input  logic [1:0]  lcr_word_len,
-    input  logic        lcr_parity_en,
     input  logic        lcr_stop_bits,
+    input  logic        lcr_parity_en,
     input  logic [15:0] baud_div,
 
     input  logic        rx_oe,
