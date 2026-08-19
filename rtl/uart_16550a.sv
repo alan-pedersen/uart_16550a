@@ -66,18 +66,18 @@ module uart_16550a (
     logic        rx_fifo_pending_err;
 
     // TX Datapath
-    logic       tx_fifo_rst;
-    logic       tx_fifo_push;
-    logic       tx_fifo_pop;
-    logic [7:0] tx_fifo_wdata;
-    logic [7:0] tx_fifo_rdata;
-    logic       tx_fifo_empty;
-    logic       tx_fifo_full;
+    logic        tx_fifo_rst;
+    logic        tx_fifo_push;
+    logic        tx_fifo_pop;
+    logic [7:0]  tx_fifo_wdata;
+    logic [7:0]  tx_fifo_rdata;
+    logic        tx_fifo_empty;
+    logic        tx_fifo_full;
 
-    logic       tx_start;
-    logic [7:0] tx_data;
-    logic       tx_ready;
-    logic       tsr_empty;
+    logic        tx_start;
+    logic [7:0]  tx_data;
+    logic        tx_ready;
+    logic        tsr_empty;
 
     // Line Status and Interrupts
     logic        lsr_oe;
