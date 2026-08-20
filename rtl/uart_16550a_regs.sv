@@ -11,43 +11,40 @@ module uart_16550a_regs (
     output logic        rsp_valid,
 
     output logic [15:0] baud_div,
-
     output logic        fcr_fifo_en,
-
+    output logic [1:0]  fcr_rx_trigger,
     output logic [1:0]  lcr_word_len,
     output logic        lcr_stop_bits,
     output logic        lcr_parity_en,
     output logic        lcr_parity_even,
     output logic        lcr_parity_stick,
     output logic        lcr_break_en,
-
     output logic        ier_erbi,
     output logic        ier_etbei,
     output logic        ier_elsi,
     output logic        ier_edssi,
 
+    output logic        fcr_write,
+    output logic        thr_write,
+    output logic        rbr_read,
+    output logic        iir_read,
+    output logic        fifo_en_toggle,
+
     input  logic        tsr_empty,
     input  logic        tx_fifo_empty,
-    output logic        tx_fifo_rst,
-    output logic        tx_fifo_push,
-    output logic [7:0]  tx_fifo_wdata,
 
     input  logic [10:0] rx_fifo_rdata,
     input  logic        rx_fifo_empty,
     input  logic        rx_fifo_overrun_event,
     input  logic        rx_fifo_head_update,
-    input  logic        rx_fifo_pending_err,
-    output logic        rx_fifo_rst,
-    output logic        rx_fifo_pop,
-    output logic [4:0]  rx_fifo_trigger_threshold,
+    input  logic [4:0]  rx_fifo_err_count,
+    input  logic        rx_fifo_head_has_err,
 
     output logic        lsr_oe,
     output logic        lsr_pe,
     output logic        lsr_fe,
     output logic        lsr_bi,
-    output logic        lsr_err_ack,
 
-    output logic        iir_read,
     input  logic [3:0]  irq_id
 );
     import uart_16550a_pkg::*;
@@ -92,16 +89,14 @@ module uart_16550a_regs (
 
     assign dlab             = lcr[7];
     assign baud_div         = {dlm, dll};
-
     assign fcr_fifo_en      = fcr[0];
-
+    assign fcr_rx_trigger   = fcr[7:6];
     assign lcr_word_len     = lcr[1:0];
     assign lcr_stop_bits    = lcr[2];
     assign lcr_parity_en    = lcr[3];
     assign lcr_parity_even  = lcr[4];
     assign lcr_parity_stick = lcr[5];
     assign lcr_break_en     = lcr[6];
-
     assign ier_erbi         = ier[0];
     assign ier_etbei        = ier[1];
     assign ier_elsi         = ier[2];
@@ -111,44 +106,24 @@ module uart_16550a_regs (
     // System Actions
     // ================================================================
 
-    logic fcr_write;
     logic lsr_read;
-    logic thr_write;
-    logic rbr_read;
-    logic fifo_en_toggle;
 
     assign fcr_write      = req_we && (req_addr == CSR_FCR);
     assign lsr_read       = req_re && (req_addr == CSR_LSR);
     assign thr_write      = req_we && (req_addr == CSR_THR) && !dlab;
     assign rbr_read       = req_re && (req_addr == CSR_RBR) && !dlab;
     assign iir_read       = req_re && (req_addr == CSR_IIR);
-    assign fifo_en_toggle = fcr_write && (req_wdata[0] != fcr[0]);
-
-    // ================================================================
-    // TX/RX Control
-    // ================================================================
-
-    assign tx_fifo_rst    = fifo_en_toggle || (fcr_write && req_wdata[2]);
-    assign tx_fifo_push   = thr_write && (fcr[0] || tx_fifo_empty);
-    assign tx_fifo_wdata  = req_wdata;
-
-    assign rx_fifo_rst    = fifo_en_toggle || (fcr_write && req_wdata[1]);
-    assign rx_fifo_pop    = rbr_read;
-
-    always_comb begin
-        unique case (fcr[7:6])
-            2'b00: rx_fifo_trigger_threshold = 1;
-            2'b01: rx_fifo_trigger_threshold = 4;
-            2'b10: rx_fifo_trigger_threshold = 8;
-            2'b11: rx_fifo_trigger_threshold = 14;
-        endcase
-    end
+    assign fifo_en_toggle = fcr_write && (req_wdata[0] != fcr_fifo_en);
 
     // ================================================================
     // Driving LSR and IIR
     // ================================================================
 
     logic overrun_err;
+    logic lsr_err_ack;
+
+    logic rx_fifo_head_err_cleared;
+    logic rx_fifo_pending_err;
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -164,6 +139,9 @@ module uart_16550a_regs (
         end
     end
 
+    assign rx_fifo_head_err_cleared = rx_fifo_head_has_err && lsr_err_ack;
+    assign rx_fifo_pending_err      = (rx_fifo_err_count > 1) || (rx_fifo_err_count == 1 && !rx_fifo_head_err_cleared);
+
     assign lsr_oe = overrun_err;
     assign lsr_pe = !rx_fifo_empty && (rx_fifo_rdata[8]  && !lsr_err_ack);
     assign lsr_fe = !rx_fifo_empty && (rx_fifo_rdata[9]  && !lsr_err_ack);
@@ -177,9 +155,9 @@ module uart_16550a_regs (
     assign lsr[4] = lsr_bi;
     assign lsr[5] = tx_fifo_empty;
     assign lsr[6] = tx_fifo_empty && tsr_empty;
-    assign lsr[7] = fcr[0] && rx_fifo_pending_err;
+    assign lsr[7] = fcr_fifo_en && rx_fifo_pending_err;
 
-    assign iir[7:4] = {fcr[0], fcr[0], 2'b00};
+    assign iir[7:4] = {fcr_fifo_en, fcr_fifo_en, 2'b00};
     assign iir[3:0] = irq_id;
 
     // ================================================================
@@ -237,3 +215,4 @@ module uart_16550a_regs (
         end
     end
 endmodule
+// reorder signals to have fifo inputs after bus so that all after is output ?? irq_id too ??

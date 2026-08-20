@@ -13,10 +13,10 @@ module uart_16550a_intc (
     input  logic        lcr_parity_en,
     input  logic [15:0] baud_div,
 
-    input  logic        rx_oe,
-    input  logic        rx_pe,
-    input  logic        rx_fe,
-    input  logic        rx_bi,
+    input  logic        lsr_oe,
+    input  logic        lsr_pe,
+    input  logic        lsr_fe,
+    input  logic        lsr_bi,
 
     input  logic        iir_read,
     input  logic        rx_fifo_trigger_met,
@@ -72,7 +72,7 @@ module uart_16550a_intc (
     assign start_ticks   = (1 * 16) * 4;
     assign data_ticks    = ((5 + 10'(lcr_word_len)) * 16) * 4;
     assign parity_ticks  = (lcr_parity_en * 16) * 4;
-    assign stop_ticks    = (calc_stop_ticks(lcr_word_len, lcr_stop_bits)) * 4; // calc_stop_ticks returns 1,1.5,2 * 16
+    assign stop_ticks    = (calc_stop_ticks(lcr_word_len, lcr_stop_bits) + 1) * 4; // calc_stop_ticks returns 1,1.5,2 * 16 - 1, need to add 1
     assign timeout_ticks = start_ticks + data_ticks + parity_ticks + stop_ticks;
 
     assign cti_clear     = rx_fifo_successful_pop || (!cti && rx_fifo_successful_push);
@@ -122,7 +122,7 @@ module uart_16550a_intc (
     logic irq_thre;
     logic irq_ms;
 
-    assign irq_rls  = elsi  && (rx_oe | rx_pe | rx_fe | rx_bi);
+    assign irq_rls  = elsi  && (lsr_oe | lsr_pe | lsr_fe | lsr_bi);
     assign irq_rda  = erbi  && (fcr_fifo_en ? rx_fifo_trigger_met : !rx_fifo_empty);
     assign irq_cti  = erbi  && cti;
     assign irq_thre = etbei && tx_fifo_empty && !thre_ack;
