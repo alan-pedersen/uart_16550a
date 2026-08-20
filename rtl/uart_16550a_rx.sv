@@ -1,3 +1,26 @@
+// ================================================================
+// Module: uart_16550a_rx
+// 
+// Description:
+//   Implements the 16550A UART receiver. Synchronizes and samples the
+//   asynchronous RX input at 16x the configured baud rate, validates
+//   the start bit, and optionally checks parity.
+
+//   LCR configuration is captured at the start of each reception so
+//   that changes to the LCR or baud divisor cannot affect a reception
+//   already in progress.
+
+//   Completed characters are presented through 'rx_data' with 'rx_valid'
+//   and the corresponding 'rx_pe', 'rx_fe', and 'rx_bi' error signals.
+//   These are asserted for one clock cycle.
+
+// Notes:
+//   - RX data is sampled using a 3-sample majority vote at ticks 7, 8,
+//     and 9 of each 16x bit period.
+//   - After evaluating the stop condition, the FSM returns to ST_IDLE
+//     at tick 10/16, allowing the receiver to prepare for the next byte.
+// ================================================================
+
 module uart_16550a_rx (
     input  logic        clk,
     input  logic        rst,

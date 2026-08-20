@@ -1,31 +1,45 @@
+// ================================================================
+// Module: uart_16550a_intc
+// 
+// Description:
+//   Interrupt controller for the 16550A UART. Evaluates interrupt
+//   conditions, masks them against the IER, and encodes the highest
+//   priority active interrupt into 'irq_id', which is later routed
+//   to the lower bits of the IIR.
+// 
+// Notes:
+//   - The MS (Modem Status) interrupt is currently tied off (unsupported).
+// ================================================================
+
 module uart_16550a_intc (
     input  logic        clk,
     input  logic        rst,
 
-    input  logic        erbi,  // Enable RDA and CTI
-    input  logic        etbei, // Enable THRE
-    input  logic        elsi,  // Enable RLS
-    input  logic        edssi, // Enable MS
+    input  logic        erbi,                    // Enable RDA and CTI
+    input  logic        etbei,                   // Enable THRE
+    input  logic        elsi,                    // Enable RLS
+    input  logic        edssi,                   // Enable MS
 
-    input  logic        fcr_fifo_en,
-    input  logic [1:0]  lcr_word_len,
-    input  logic        lcr_stop_bits,
-    input  logic        lcr_parity_en,
-    input  logic [15:0] baud_div,
+    input  logic        fcr_fifo_en,             // RDA
+    input  logic [1:0]  lcr_word_len,            // CTI
+    input  logic        lcr_stop_bits,           // CTI
+    input  logic        lcr_parity_en,           // CTI
+    input  logic [15:0] baud_div,                // CTI
 
-    input  logic        lsr_oe,
-    input  logic        lsr_pe,
-    input  logic        lsr_fe,
-    input  logic        lsr_bi,
+    input  logic        lsr_oe,                  // RLS
+    input  logic        lsr_pe,                  // RLS
+    input  logic        lsr_fe,                  // RLS
+    input  logic        lsr_bi,                  // RLS
 
-    input  logic        iir_read,
-    input  logic        rx_fifo_trigger_met,
-    input  logic        rx_fifo_empty,
-    input  logic        rx_fifo_successful_push,
-    input  logic        rx_fifo_successful_pop,
-    input  logic        tx_fifo_push,
-    input  logic        tx_fifo_full,
-    input  logic        tx_fifo_empty,
+    input  logic        iir_read,                // THRE
+
+    input  logic        rx_fifo_trigger_met,     // RDA
+    input  logic        rx_fifo_empty,           // RDA and CTI
+    input  logic        rx_fifo_successful_push, // CTI
+    input  logic        rx_fifo_successful_pop,  // CTI
+    input  logic        tx_fifo_push,            // THRE
+    input  logic        tx_fifo_full,            // THRE
+    input  logic        tx_fifo_empty,           // THRE
 
     output logic [3:0]  irq_id,
     output logic        irq

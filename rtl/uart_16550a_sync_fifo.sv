@@ -1,3 +1,21 @@
+// ================================================================
+// Module: uart_16550a_sync_fifo
+// 
+// Description:
+//   Generic synchronous FIFO with configurable width and depth. The read
+//   data and status signals 'empty', 'full', and 'count', are combinational
+//   and reflect the active system state.
+
+// Notes:
+//   - Pushes are ignored when the FIFO is full.
+//   - Pops are ignored when the FIFO is empty.
+//   - DEPTH must be a power of two as wrap-around bits are used to detect
+//     the 'full' condition.
+// 
+// Notes:
+//   - The MS (Modem Status) interrupt is currently tied off (unsupported).
+// ================================================================
+
 module uart_16550a_sync_fifo #(
     parameter int WIDTH = 8,
     parameter int DEPTH = 16
