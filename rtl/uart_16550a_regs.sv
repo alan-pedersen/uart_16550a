@@ -30,21 +30,23 @@ module uart_16550a_regs (
     output logic        iir_read,
     output logic        fifo_en_toggle,
 
+    // Needed to calculate LSR
     input  logic        tsr_empty,
     input  logic        tx_fifo_empty,
-
-    input  logic [10:0] rx_fifo_rdata,
+    input  logic [10:0] rx_fifo_rdata, // Routed to RBR
     input  logic        rx_fifo_empty,
     input  logic        rx_fifo_overrun_event,
     input  logic        rx_fifo_head_update,
     input  logic [4:0]  rx_fifo_err_count,
     input  logic        rx_fifo_head_has_err,
 
+    // Outputs to interrupt controller
     output logic        lsr_oe,
     output logic        lsr_pe,
     output logic        lsr_fe,
     output logic        lsr_bi,
 
+    // Routed to IIR[3:0]
     input  logic [3:0]  irq_id
 );
     import uart_16550a_pkg::*;
@@ -215,4 +217,3 @@ module uart_16550a_regs (
         end
     end
 endmodule
-// reorder signals to have fifo inputs after bus so that all after is output ?? irq_id too ??

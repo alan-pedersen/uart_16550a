@@ -2,10 +2,10 @@ module uart_16550a_intc (
     input  logic        clk,
     input  logic        rst,
 
-    input  logic        erbi,
-    input  logic        etbei,
-    input  logic        elsi,
-    input  logic        edssi,
+    input  logic        erbi,  // Enable RDA and CTI
+    input  logic        etbei, // Enable THRE
+    input  logic        elsi,  // Enable RLS
+    input  logic        edssi, // Enable MS
 
     input  logic        fcr_fifo_en,
     input  logic [1:0]  lcr_word_len,
@@ -72,7 +72,7 @@ module uart_16550a_intc (
     assign start_ticks   = (1 * 16) * 4;
     assign data_ticks    = ((5 + 10'(lcr_word_len)) * 16) * 4;
     assign parity_ticks  = (lcr_parity_en * 16) * 4;
-    assign stop_ticks    = (10'(calc_stop_ticks(lcr_word_len, lcr_stop_bits)) + 1) * 4; // calc_stop_ticks returns 1,1.5,2 * 16 - 1, need to add 1
+    assign stop_ticks    = (10'(calc_stop_ticks(lcr_word_len, lcr_stop_bits)) + 1) * 4; // calc_stop_ticks returns 1,1.5,2 * 16 - 1; need to add 1
     assign timeout_ticks = start_ticks + data_ticks + parity_ticks + stop_ticks;
 
     assign cti_clear     = rx_fifo_successful_pop || (!cti && rx_fifo_successful_push);
