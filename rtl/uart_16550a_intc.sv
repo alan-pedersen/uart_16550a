@@ -72,7 +72,7 @@ module uart_16550a_intc (
     assign start_ticks   = (1 * 16) * 4;
     assign data_ticks    = ((5 + 10'(lcr_word_len)) * 16) * 4;
     assign parity_ticks  = (lcr_parity_en * 16) * 4;
-    assign stop_ticks    = (calc_stop_ticks(lcr_word_len, lcr_stop_bits) + 1) * 4; // calc_stop_ticks returns 1,1.5,2 * 16 - 1, need to add 1
+    assign stop_ticks    = (10'(calc_stop_ticks(lcr_word_len, lcr_stop_bits)) + 1) * 4; // calc_stop_ticks returns 1,1.5,2 * 16 - 1, need to add 1
     assign timeout_ticks = start_ticks + data_ticks + parity_ticks + stop_ticks;
 
     assign cti_clear     = rx_fifo_successful_pop || (!cti && rx_fifo_successful_push);

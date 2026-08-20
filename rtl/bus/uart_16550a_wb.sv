@@ -14,51 +14,58 @@ module uart_16550a_wb #(
     output logic [DW-1:0]     wb_dat_o,
     output logic              wb_ack_o,
     output logic              wb_err_o,
+    output logic              wb_rty_o,
+    output logic              wb_stall_o,
 
     input  logic              rx,
     output logic              tx,
-
     output logic              irq
 );
-    logic       csr_en;
-    logic       csr_wr;
-    logic [2:0] csr_addr;
-    logic [7:0] csr_wdata;
-    logic [7:0] csr_rdata;
+    logic       req_valid;
+    logic       req_ready;
+    logic       req_write;
+    logic [2:0] req_addr;
+    logic [7:0] req_wdata;
+    logic [7:0] rsp_rdata;
+    logic       rsp_valid;
 
-    assign csr_en    = wb_valid;
-    assign csr_wr    = wb.we;
-    assign csr_addr  = wb.addr[2:0];
-    assign csr_wdata = wb.dat_w[7:0];
+    assign req_valid = wb_valid;
+    assign req_write = wb_we_i;
+    assign req_addr  = wb_addr_i[2:0];
+    assign req_wdata = wb_dat_i[7:0];
 
     uart_16550a u_uart_16550a (
         .clk       (clk),
         .rst       (rst),
-        .csr_en    (csr_en),
-        .csr_wr    (csr_wr),
-        .csr_addr  (csr_addr),
-        .csr_wdata (csr_wdata),
-        .csr_rdata (csr_rdata),
+        .req_valid (req_valid),
+        .req_ready (req_ready),
+        .req_write (req_write),
+        .req_addr  (req_addr),
+        .req_wdata (req_wdata),
+        .rsp_rdata (rsp_rdata),
+        .rsp_valid (rsp_valid),
         .rx        (rx),
         .tx        (tx),
         .irq       (irq)
     );
 
-    logic ack_q;
     logic wb_valid;
+    logic ack;
 
-    assign wb_valid  = wb.cyc & wb.stb & ~ack_q;
-    assign wb.dat_r  = {{(DW-8){1'b0}}, csr_rdata};
-    assign wb.ack    = ack_q;
-    assign wb.err    = 0;
+    assign wb_valid   = wb_cyc_i && wb_stb_i && ~ack;
+    assign wb_dat_o   = {{(DW-8){1'b0}}, rsp_rdata};
+    assign wb_ack_o   = ack;
+    assign wb_err_o   = 0;
+    assign wb_rty_o   = 0;
+    assign wb_stall_o = ~req_ready;
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            ack_q <= 0;
+            ack <= 0;
         end
         else begin
-            if (wb_valid) ack_q <= 1;
-            else          ack_q <= 0;
+            if (wb_valid) ack <= 1;
+            else          ack <= 0;
         end
     end
 endmodule
