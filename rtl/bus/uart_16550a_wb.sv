@@ -2,8 +2,8 @@ module uart_16550a_wb #(
     parameter int AW = 32,
     parameter int DW = 32
 )(
-    input  logic              clk,
-    input  logic              rst,
+    input  logic              wb_clk_i,
+    input  logic              wb_rst_i,
 
     input  logic              wb_cyc_i,
     input  logic              wb_stb_i,
@@ -29,14 +29,14 @@ module uart_16550a_wb #(
     logic [7:0] rsp_rdata;
     logic       rsp_valid;
 
-    assign req_valid = wb_valid;
+    assign req_valid = wb_cyc_i && wb_stb_i && ~wb_stall_o;
     assign req_write = wb_we_i;
     assign req_addr  = wb_addr_i[2:0];
     assign req_wdata = wb_dat_i[7:0];
 
     uart_16550a u_uart_16550a (
-        .clk       (clk),
-        .rst       (rst),
+        .clk       (wb_clk_i),
+        .rst       (wb_rst_i),
         .req_valid (req_valid),
         .req_ready (req_ready),
         .req_write (req_write),
@@ -49,23 +49,9 @@ module uart_16550a_wb #(
         .irq       (irq)
     );
 
-    logic wb_valid;
-    logic ack;
-
-    assign wb_valid   = wb_cyc_i && wb_stb_i && ~ack;
     assign wb_dat_o   = {{(DW-8){1'b0}}, rsp_rdata};
-    assign wb_ack_o   = ack;
+    assign wb_ack_o   = rsp_valid;
     assign wb_err_o   = 0;
     assign wb_rty_o   = 0;
     assign wb_stall_o = ~req_ready;
-
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            ack <= 0;
-        end
-        else begin
-            if (wb_valid) ack <= 1;
-            else          ack <= 0;
-        end
-    end
 endmodule
